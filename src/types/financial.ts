@@ -12,6 +12,7 @@ export interface AccountEntry {
 export interface LineItem {
   id?: string;
   description: string;
+  code: number;
   amount: number;
   section: string;
 }

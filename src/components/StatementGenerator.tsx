@@ -166,8 +166,8 @@ export default function StatementGenerator({ data, type, onStatementGenerated, i
             <StaticStatement statement={statement} />
           )}
           
-          <FinancialRatios statement={statement} type={type} />
-          <StatementAnalysis statement={statement} type={type} />
+          {/* <FinancialRatios statement={statement} type={type} /> */}
+          {/* <StatementAnalysis statement={statement} type={type} /> */}
         </div>
       ) : (
         <p className="text-center text-gray-500">Upload trial balance to generate statement</p>

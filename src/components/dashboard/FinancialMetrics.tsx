@@ -8,21 +8,36 @@ interface Props {
 
 export default function FinancialMetrics({ statements }: Props) {
   const calculateMetrics = () => {
-    const balanceSheet = statements.find(s => s.type === 'balance-sheet');
-    const incomeStatement = statements.find(s => s.type === 'income');
-    const cashFlow = statements.find(s => s.type === 'cash-flow');
+    const balanceSheet = statements.find(s => s.type === 'balance-sheet')?.statement;
+    const incomeStatement = statements.find(s => s.type === 'income')?.statement;
+    const cashFlow = statements.find(s => s.type === 'cash-flow')?.statement;
+
+    // Calculate total assets from balance sheet
+    const totalAssets = balanceSheet?.lineItems
+      .filter(item => item.section.toString().toLowerCase().includes('assets'))
+      .reduce((sum, item) => sum + item.amount, 0) || 0;
+
+    // Calculate revenue from income statement
+    const revenue = incomeStatement?.lineItems
+      .filter(item => item.section.toString().toLowerCase().includes('revenue'))
+      .reduce((sum, item) => sum + item.amount, 0) || 0;
+
+    // Calculate operating cash flow
+    const operatingCashFlow = cashFlow?.lineItems
+      .filter(item => item.section.toString().toLowerCase().includes('operating'))
+      .reduce((sum, item) => sum + item.amount, 0) || 0;
+
+    // Calculate net income (total from income statement)
+    const netIncome = incomeStatement?.total || 0;
+
+    // Calculate profit margin
+    const profitMargin = revenue > 0 ? (netIncome / revenue) * 100 : 0;
 
     return {
-      totalAssets: balanceSheet?.statement.total || 0,
-      revenue: incomeStatement?.statement.lineItems
-        .filter(item => item.section.startsWith('revenue'))
-        .reduce((sum, item) => sum + item.amount, 0) || 0,
-      cashBalance: cashFlow?.statement.total || 0,
-      profitMargin: incomeStatement ? 
-        (incomeStatement.statement.total / 
-          incomeStatement.statement.lineItems
-            .filter(item => item.section.startsWith('revenue'))
-            .reduce((sum, item) => sum + item.amount, 0)) * 100 : 0
+      totalAssets,
+      revenue,
+      operatingCashFlow,
+      profitMargin
     };
   };
 
@@ -33,9 +48,19 @@ export default function FinancialMetrics({ statements }: Props) {
       style: 'currency',
       currency: 'USD',
       minimumFractionDigits: 0,
-      maximumFractionDigits: 0
+      maximumFractionDigits: 0,
+      notation: 'compact'
     }).format(amount);
   };
+
+  if (!statements.length) {
+    return (
+      <div className="bg-white rounded-lg shadow-sm p-6">
+        <h3 className="text-lg font-semibold text-gray-800 mb-4">Key Financial Metrics</h3>
+        <p className="text-gray-500 text-center">No statements available for this period</p>
+      </div>
+    );
+  }
 
   return (
     <div className="bg-white rounded-lg shadow-sm p-6">
@@ -71,9 +96,9 @@ export default function FinancialMetrics({ statements }: Props) {
         <div className="p-4 bg-yellow-50 rounded-lg">
           <div className="flex items-center justify-between mb-2">
             <ArrowUpRight className="w-5 h-5 text-yellow-600" />
-            <span className="text-xs font-medium text-yellow-600">Cash Balance</span>
+            <span className="text-xs font-medium text-yellow-600">Operating Cash Flow</span>
           </div>
-          <p className="text-2xl font-bold text-gray-900">{formatCurrency(metrics.cashBalance)}</p>
+          <p className="text-2xl font-bold text-gray-900">{formatCurrency(metrics.operatingCashFlow)}</p>
         </div>
       </div>
     </div>

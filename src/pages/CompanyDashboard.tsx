@@ -5,10 +5,11 @@ import PeriodSelector from '../components/dashboard/PeriodSelector';
 import FinancialMetrics from '../components/dashboard/FinancialMetrics';
 import TrendAnalysis from '../components/dashboard/TrendAnalysis';
 import RatioAnalysis from '../components/dashboard/RatioAnalysis';
-import { SavedStatement } from '../types/financial';
+import SavedStatements from '../components/dashboard/SavedStatements';
+import { SavedStatement, GeneratedStatement } from '../types/financial';
 import { useCompany } from '../contexts/CompanyContext';
 import { getFiscalYears } from '../services/api/fiscal-years';
-import { getStatements } from '../services/api/statements';
+import { supabase } from '../config/client';
 
 export default function CompanyDashboard() {
   const navigate = useNavigate();
@@ -20,7 +21,45 @@ export default function CompanyDashboard() {
   const [error, setError] = useState<string | null>(null);
   const { selectedCompany } = useCompany();
 
-  // Load fiscal years when company changes
+  const transformStatementData = (rawData: any[]): SavedStatement[] => {
+    if (!Array.isArray(rawData)) {
+      console.error('Invalid rawData:', rawData);
+      return [];
+    }
+
+    return rawData.map(item => {
+      try {
+        // Extract each statement type from the data object
+        const statements: SavedStatement[] = [];
+        const data = item.data;
+
+        // Process each statement type
+        for (const type of ['balance-sheet', 'income', 'cash-flow', 'pnl']) {
+          if (data[type]) {
+            statements.push({
+              id: `${item.id}-${type}`,
+              type,
+              statement: {
+                lineItems: data[type].lineItems || [],
+                subtotals: data[type].subtotals || [],
+                total: data[type].total || 0,
+                validations: data[type].validations || [],
+                corrections: data[type].corrections || []
+              },
+              createdAt: item.created_at,
+              updatedAt: item.updated_at
+            });
+          }
+        }
+
+        return statements;
+      } catch (err) {
+        console.error('Error processing statement:', err, item);
+        return [];
+      }
+    }).flat().filter(Boolean);
+  };
+
   useEffect(() => {
     const loadFiscalYears = async () => {
       if (!selectedCompany) {
@@ -31,16 +70,31 @@ export default function CompanyDashboard() {
       try {
         setLoading(true);
         const years = await getFiscalYears(selectedCompany.id);
-        console.log('Loaded fiscal years:', years); // Debug log
         setFiscalYears(years);
+        
+        if (years.length > 0) {
+          const defaultYear = years[0].id;
+          setSelectedYear(defaultYear);
+          
+          const { data: statementsData, error: statementsError } = await supabase
+            .from('statements')
+            .select('*')
+            .eq('company_id', selectedCompany.id)
+            .eq('fiscal_year_id', defaultYear)
+            .eq('month', selectedMonth);
 
-        // Select first year by default if none selected
-        if (years.length > 0 && !selectedYear) {
-          setSelectedYear(years[0].id);
+          if (statementsError) throw statementsError;
+          
+          if (statementsData) {
+            console.log('Raw statements data:', statementsData);
+            const transformedStatements = transformStatementData(statementsData);
+            console.log('Transformed statements:', transformedStatements);
+            setStatements(transformedStatements);
+          }
         }
       } catch (err) {
-        console.error('Error loading fiscal years:', err);
-        setError('Failed to load fiscal years');
+        console.error('Error loading data:', err);
+        setError(err instanceof Error ? err.message : 'Failed to load data');
       } finally {
         setLoading(false);
       }
@@ -49,39 +103,38 @@ export default function CompanyDashboard() {
     loadFiscalYears();
   }, [selectedCompany, navigate]);
 
-  // Load statements when period changes
   useEffect(() => {
     const loadStatements = async () => {
-      if (!selectedCompany?.id || !selectedYear) {
-        setStatements([]);
-        return;
-      }
+      if (!selectedCompany?.id || !selectedYear) return;
 
       try {
         setLoading(true);
-        console.log('Loading statements for:', { 
-          companyId: selectedCompany.id,
-          yearId: selectedYear,
-          month: selectedMonth 
-        });
+        const { data: statementsData, error: statementsError } = await supabase
+          .from('statements')
+          .select('*')
+          .eq('company_id', selectedCompany.id)
+          .eq('fiscal_year_id', selectedYear)
+          .eq('month', selectedMonth);
 
-        const data = await getStatements(
-          selectedCompany.id,
-          selectedYear,
-          selectedMonth
-        );
+        if (statementsError) throw statementsError;
 
-        console.log('Loaded statements:', data);
-        setStatements(data || []);
+        if (statementsData) {
+          console.log('Raw statements data:', statementsData);
+          const transformedStatements = transformStatementData(statementsData);
+          console.log('Transformed statements:', transformedStatements);
+          setStatements(transformedStatements);
+        }
       } catch (err) {
         console.error('Error loading statements:', err);
-        setError('Failed to load statements');
+        setError(err instanceof Error ? err.message : 'Failed to load statements');
       } finally {
         setLoading(false);
       }
     };
 
-    loadStatements();
+    if (selectedCompany && selectedYear) {
+      loadStatements();
+    }
   }, [selectedCompany?.id, selectedYear, selectedMonth]);
 
   if (loading) {
@@ -117,7 +170,6 @@ export default function CompanyDashboard() {
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Company Header */}
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
           <Building2 className="w-8 h-8 text-blue-600" />
@@ -126,7 +178,6 @@ export default function CompanyDashboard() {
         <p className="text-gray-500">Tax ID: {selectedCompany.tax_id}</p>
       </div>
 
-      {/* Period Selector */}
       <div className="mb-8">
         <PeriodSelector
           fiscalYears={fiscalYears}
@@ -137,8 +188,8 @@ export default function CompanyDashboard() {
         />
       </div>
 
-      {/* Dashboard Content */}
       <div className="grid grid-cols-1 gap-8">
+        <SavedStatements statements={statements} />
         <FinancialMetrics statements={statements} />
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <TrendAnalysis statements={statements} />

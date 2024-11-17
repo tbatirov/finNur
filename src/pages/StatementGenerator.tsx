@@ -12,11 +12,11 @@ export default function StatementGeneratorPage() {
   const [activeStatement, setActiveStatement] = useState<StatementType>('balance-sheet');
   const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
-  const [generatedStatements, setGeneratedStatements] = useState<Record<StatementType, GeneratedStatement>>({});
+  const [generatedStatements, setGeneratedStatements] = useState<Record<StatementType, GeneratedStatement>>({} as Record<StatementType, GeneratedStatement>);
 
   const handleDataUpload = useCallback((data: AccountEntry[]) => {
     setTrialBalanceData(data);
-    setGeneratedStatements({});
+    setGeneratedStatements({} as Record<StatementType, GeneratedStatement>);
     setIsGenerating(true);
   }, []);
 
@@ -93,6 +93,7 @@ export default function StatementGeneratorPage() {
       {isSaveDialogOpen && (
         <SaveStatementsDialog
           statements={generatedStatements}
+          type={activeStatement}
           onClose={() => setIsSaveDialogOpen(false)}
           onSuccess={handleSaveSuccess}
         />

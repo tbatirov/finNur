@@ -17,13 +17,34 @@ export async function getStatements(
     if (error) throw error;
 
     // Transform and validate the data
-    return (data || []).map(item => ({
-      id: item.id,
-      type: item.type,
-      statement: item.data as GeneratedStatement,
-      createdAt: item.created_at,
-      updatedAt: item.updated_at
-    }));
+    return (data || []).map(item => {
+      try {
+        // Handle nested statement structure
+        const statementData = item.data[item.type] as GeneratedStatement;
+        
+        if (!statementData) {
+          console.warn(`No data found for statement type ${item.type}`);
+          return null;
+        }
+
+        return {
+          id: item.id,
+          type: item.type,
+          statement: {
+            lineItems: statementData.lineItems || [],
+            subtotals: statementData.subtotals || [],
+            total: statementData.total || 0,
+            validations: statementData.validations || [],
+            corrections: statementData.corrections || []
+          },
+          createdAt: item.created_at,
+          updatedAt: item.updated_at
+        };
+      } catch (err) {
+        console.error('Error processing statement:', err);
+        return null;
+      }
+    }).filter(Boolean) as SavedStatement[]; // Remove any null values
   } catch (error) {
     console.error('Error fetching statements:', error);
     throw error;
@@ -32,6 +53,9 @@ export async function getStatements(
 
 export async function saveStatement(statement: StatementData): Promise<SavedStatement> {
   try {
+    // Structure the data correctly for storage
+    const statementData = statement.data;
+
     const { data, error } = await supabase
       .from('statements')
       .upsert({
@@ -39,7 +63,7 @@ export async function saveStatement(statement: StatementData): Promise<SavedStat
         fiscal_year_id: statement.fiscal_year_id,
         month: statement.month,
         type: statement.type,
-        data: statement.data
+        data: statementData
       })
       .select()
       .single();
@@ -49,7 +73,7 @@ export async function saveStatement(statement: StatementData): Promise<SavedStat
     return {
       id: data.id,
       type: data.type,
-      statement: data.data as GeneratedStatement,
+      statement: data.data[data.type] as GeneratedStatement,
       createdAt: data.created_at,
       updatedAt: data.updated_at
     };
