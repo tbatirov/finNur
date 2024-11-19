@@ -1,4 +1,4 @@
-import { StatementType } from '../../types/financial';
+import { StatementType, LineItem } from '../../types/financial';
 
 export interface AccountingRule {
   id: string;
@@ -7,6 +7,21 @@ export interface AccountingRule {
   code: string;
   description: string;
   validation: string;
+}
+
+export interface IncomeTotals {
+  operatingRevenue: number;
+  costOfSales: number;
+  grossProfit: number;
+  operatingExpenses: number;
+  operatingProfit: number;
+  financialIncome: number;
+  financialExpenses: number;
+  otherIncome: number;
+  otherExpenses: number;
+  profitBeforeTax: number;
+  incomeTax: number;
+  netIncome: number;
 }
 
 // NAS Uzbekistan Account Code Structure
@@ -59,20 +74,20 @@ export const NAS_ACCOUNT_STRUCTURE = {
     '3400-3499': 'Treasury shares'
   },
   revenue: {
-    '4000-4099': 'Operating revenue',
-    '4100-4199': 'Financial income',
-    '4200-4299': 'Other income'
+    '9000-9099': 'Operating revenue',
+    '9100-9199': 'Financial income',
+    '9200-9299': 'Other income'
   },
   expenses: {
-    '5000-5099': 'Cost of sales',
-    '5100-5199': 'Operating expenses',
-    '5200-5299': 'Financial expenses',
-    '5300-5399': 'Tax expenses',
-    '5400-5499': 'Other expenses'
+    '9300-9399': 'Cost of sales',
+    '9400-9499': 'Operating expenses',
+    '9500-9599': 'Financial expenses',
+    '9600-9699': 'Tax expenses',
+    '9700-9799': 'Other expenses'
   }
 };
 
-// Updated accounting rules based on NAS Uzbekistan
+// NAS Uzbekistan Accounting Rules
 export const accountingRules: AccountingRule[] = [
   // Asset Sign Convention Rules
   {
@@ -107,108 +122,121 @@ export const accountingRules: AccountingRule[] = [
     description: 'Equity accounts must have positive balances (except treasury shares)',
     validation: 'balance > 0 || code.startsWith("3400")'
   },
+
+  // Income Statement Rules
   {
-    id: 'sign-005',
+    id: 'income-001',
     category: 'sign',
     type: ['income', 'pnl'],
-    code: '4000-4299',
+    code: '9000-9299',
     description: 'Revenue accounts must have positive balances',
     validation: 'balance > 0'
   },
   {
-    id: 'sign-006',
+    id: 'income-002',
     category: 'sign',
     type: ['income', 'pnl'],
-    code: '5000-5499',
+    code: '9300-9899',
     description: 'Expense accounts must have negative balances',
     validation: 'balance < 0'
   },
-
-  // Classification Rules
   {
-    id: 'class-001',
-    category: 'classification',
-    type: ['balance-sheet'],
-    code: '0100-0799',
-    description: 'Current assets must be classified under current assets section',
-    validation: 'section === "assets_current"'
-  },
-  {
-    id: 'class-002',
-    category: 'classification',
-    type: ['balance-sheet'],
-    code: '0800-1399',
-    description: 'Non-current assets must be classified under non-current assets section',
-    validation: 'section === "assets_noncurrent"'
-  },
-  {
-    id: 'class-003',
-    category: 'classification',
-    type: ['balance-sheet'],
-    code: '2000-2499',
-    description: 'Current liabilities must be classified under current liabilities section',
-    validation: 'section === "liabilities_current"'
-  },
-  {
-    id: 'class-004',
-    category: 'classification',
-    type: ['balance-sheet'],
-    code: '2500-2899',
-    description: 'Non-current liabilities must be classified under non-current liabilities section',
-    validation: 'section === "liabilities_noncurrent"'
-  },
-
-  // Calculation Rules
-  {
-    id: 'calc-001',
-    category: 'calculation',
-    type: ['balance-sheet'],
-    code: 'all',
-    description: 'Total assets must equal total liabilities plus equity',
-    validation: 'Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01'
-  },
-  {
-    id: 'calc-002',
+    id: 'income-003',
     category: 'calculation',
     type: ['income', 'pnl'],
     code: 'all',
-    description: 'Net income must equal total revenue minus total expenses',
-    validation: 'Math.abs(netIncome - (totalRevenue - totalExpenses)) < 0.01'
+    description: 'Gross profit must equal revenue minus cost of sales',
+    validation: 'Math.abs(grossProfit - (revenue - costOfSales)) < 0.01'
   },
   {
-    id: 'calc-003',
+    id: 'income-004',
     category: 'calculation',
-    type: ['balance-sheet'],
-    code: '0100-1399',
-    description: 'Net assets must be positive (going concern principle)',
-    validation: 'netAssets > 0'
+    type: ['income', 'pnl'],
+    code: 'all',
+    description: 'Operating profit must equal gross profit minus operating expenses',
+    validation: 'Math.abs(operatingProfit - (grossProfit - operatingExpenses)) < 0.01'
+  },
+
+  // Cash Flow Rules
+  {
+    id: 'cash-001',
+    category: 'sign',
+    type: ['cash-flow'],
+    code: '4000-4099',
+    description: 'Cash receipts must have positive balances',
+    validation: 'balance > 0'
+  },
+  {
+    id: 'cash-002',
+    category: 'sign',
+    type: ['cash-flow'],
+    code: '4100-4399',
+    description: 'Cash payments must have negative balances',
+    validation: 'balance < 0'
+  },
+  {
+    id: 'cash-003',
+    category: 'calculation',
+    type: ['cash-flow'],
+    code: 'all',
+    description: 'Net cash flow must equal sum of operating, investing, and financing activities',
+    validation: 'Math.abs(netCashFlow - (operatingCashFlow + investingCashFlow + financingCashFlow)) < 0.01'
   }
 ];
 
-export function getRulesForStatement(type: StatementType): AccountingRule[] {
-  return accountingRules.filter(rule => rule.type.includes(type));
+export function validateLineItem(item: LineItem, type: StatementType): boolean {
+  const code = typeof item.section === 'string' 
+    ? parseInt(item.section.split(' ')[0])
+    : parseInt(item.section.code);
+
+  const relevantRules = accountingRules.filter(rule => 
+    rule.type.includes(type) && 
+    (rule.code === 'all' || isCodeInRange(code, rule.code))
+  );
+
+  return relevantRules.every(rule => evaluateRule(rule, item));
 }
 
-export function getRulesByCategory(category: AccountingRule['category']): AccountingRule[] {
-  return accountingRules.filter(rule => rule.category === category);
+export function validateIncomeStatement(items: LineItem[], totals: IncomeTotals): boolean {
+  // Validate gross profit calculation
+  if (Math.abs(totals.grossProfit - (totals.operatingRevenue - totals.costOfSales)) > 0.01) {
+    return false;
+  }
+
+  // Validate operating profit calculation
+  if (Math.abs(totals.operatingProfit - (totals.grossProfit - totals.operatingExpenses)) > 0.01) {
+    return false;
+  }
+
+  // Validate net income calculation
+  const calculatedNetIncome = totals.operatingProfit + 
+    totals.financialIncome - totals.financialExpenses +
+    totals.otherIncome - totals.otherExpenses - totals.incomeTax;
+
+  if (Math.abs(totals.netIncome - calculatedNetIncome) > 0.01) {
+    return false;
+  }
+
+  return true;
 }
 
-export function getRuleById(id: string): AccountingRule | undefined {
-  return accountingRules.find(rule => rule.id === id);
+function isCodeInRange(code: number, range: string): boolean {
+  if (range === 'all') return true;
+  const [start, end] = range.split('-').map(Number);
+  return code >= start && code <= end;
 }
 
-export function getAccountSection(code: string): string {
-  const numericCode = parseInt(code);
-  
-  // Check each section in NAS_ACCOUNT_STRUCTURE
-  if (numericCode >= 100 && numericCode <= 799) return 'assets_current';
-  if (numericCode >= 800 && numericCode <= 1399) return 'assets_noncurrent';
-  if (numericCode >= 1400 && numericCode <= 1799) return 'contra_assets';
-  if (numericCode >= 2000 && numericCode <= 2499) return 'liabilities_current';
-  if (numericCode >= 2500 && numericCode <= 2899) return 'liabilities_noncurrent';
-  if (numericCode >= 3000 && numericCode <= 3499) return 'equity';
-  if (numericCode >= 4000 && numericCode <= 4299) return 'revenue';
-  if (numericCode >= 5000 && numericCode <= 5499) return 'expenses';
-  
-  return 'other';
+function evaluateRule(rule: AccountingRule, item: LineItem): boolean {
+  const context = {
+    balance: item.amount,
+    code: item.section.toString(),
+    isContraAccount: (item: LineItem) => item.description.toLowerCase().includes('contra')
+  };
+
+  try {
+    return new Function(...Object.keys(context), `return ${rule.validation}`)
+      (...Object.values(context));
+  } catch {
+    return false;
+  }
 }

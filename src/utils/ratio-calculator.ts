@@ -1,148 +1,242 @@
-import { GeneratedStatement } from '../types/financial';
+import { SavedStatement, RatioCategory, AccountCodeRanges, RatioCalculationError } from '../types/financial';
+import { logger } from '../services/logger';
 
-function safeNumber(value: number | undefined): number {
-  if (value === undefined || value === null || isNaN(value)) return 0;
-  return Number(value);
+// Helper function to ensure 4-digit code format
+function normalizeAccountCode(code: string): string {
+  return code.padStart(4, '0');
 }
 
-function safeRatio(numerator: number, denominator: number, asPercentage = false): number {
-  const num = safeNumber(numerator);
-  const den = safeNumber(denominator);
-  if (den === 0) return 0;
-  const ratio = num / den;
-  return asPercentage ? ratio * 100 : ratio;
+// Helper function to safely divide numbers
+function safeDiv(numerator: number, denominator: number, ratioName: string, defaultValue = 0): number {
+  logger.log(`Calculating ${ratioName}:`, { numerator, denominator });
+  
+  if (!denominator || isNaN(denominator)) {
+    logger.log(`${ratioName}: Division by zero prevented`, { numerator, denominator });
+    return defaultValue;
+  }
+  
+  const result = numerator / denominator;
+  logger.log(`${ratioName} result:`, result);
+  return result;
 }
 
-function sumBySection(statement: GeneratedStatement, sectionPrefix: string): number {
-  return statement.lineItems
-    .filter(item => {
-      const section = typeof item.section === 'string' 
-        ? item.section.toLowerCase()
-        : item.section.toString().toLowerCase();
-      return section.includes(sectionPrefix.toLowerCase());
-    })
-    .reduce((sum, item) => sum + safeNumber(item.amount), 0);
+// Helper function to sum values by code range
+function sumByCodeRange(items: any[], range: readonly [string, string], description: string): number {
+  logger.log(`Calculating sum for ${description}`, { range });
+  
+  const startCode = normalizeAccountCode(range[0]);
+  const endCode = normalizeAccountCode(range[1]);
+  
+  const filteredItems = items.filter(item => {
+    const code = normalizeAccountCode(
+      typeof item.section === 'string' 
+        ? item.section.split(' ')[0]
+        : item.section
+    );
+    
+    logger.log(`Comparing codes for ${description}:`, { 
+      itemCode: code,
+      startCode,
+      endCode,
+      isInRange: code >= startCode && code <= endCode
+    });
+    
+    return code >= startCode && code <= endCode;
+  });
+
+  logger.log(`Filtered items for ${description}:`, filteredItems);
+  
+  const sum = filteredItems.reduce((sum, item) => sum + (item.amount || 0), 0);
+  logger.log(`Sum for ${description}:`, sum);
+  
+  return sum;
 }
 
-export function calculateRatios(
-  statement: GeneratedStatement,
-  type: 'balance-sheet' | 'income' | 'cash-flow' | 'pnl'
-): { name: string; value: number; description: string }[] {
+export function calculateFinancialRatios(
+  statements: SavedStatement[],
+  previousPeriodStatements?: SavedStatement[]
+): RatioCategory[] {
+  logger.log('Starting financial ratio calculations');
+
+  const balanceSheet = statements.find(s => s.type === 'balance-sheet')?.statement;
+  const incomeStatement = statements.find(s => s.type === 'income')?.statement;
+  const cashFlow = statements.find(s => s.type === 'cash-flow')?.statement;
+
+  if (!balanceSheet?.lineItems || !incomeStatement?.lineItems) {
+    throw new RatioCalculationError(
+      'MISSING_STATEMENTS',
+      'Required statements not found'
+    );
+  }
+
   try {
-    switch (type) {
-      case 'balance-sheet': {
-        const currentAssets = sumBySection(statement, 'assets_current');
-        const currentLiabilities = sumBySection(statement, 'liabilities_current');
-        const totalAssets = sumBySection(statement, 'assets');
-        const totalLiabilities = sumBySection(statement, 'liabilities');
-        const inventory = statement.lineItems
-          .filter(item => item.description.toLowerCase().includes('inventory'))
-          .reduce((sum, item) => sum + safeNumber(item.amount), 0);
-        const equity = totalAssets - totalLiabilities;
+    // Asset calculations
+    const currentAssets = sumByCodeRange(balanceSheet.lineItems, AccountCodeRanges.CURRENT_ASSETS, 'Current Assets');
+    const totalAssets = sumByCodeRange(balanceSheet.lineItems, ['0100', '2999'], 'Total Assets');
+    const fixedAssets = sumByCodeRange(balanceSheet.lineItems, AccountCodeRanges.FIXED_ASSETS, 'Fixed Assets');
+    const inventory = sumByCodeRange(balanceSheet.lineItems, AccountCodeRanges.INVENTORY, 'Inventory');
+    const receivables = sumByCodeRange(balanceSheet.lineItems, AccountCodeRanges.RECEIVABLES, 'Receivables');
+    const cash = sumByCodeRange(balanceSheet.lineItems, AccountCodeRanges.CASH, 'Cash');
 
-        return [
+    // Liability calculations
+    const currentLiabilities = sumByCodeRange(balanceSheet.lineItems, AccountCodeRanges.CURRENT_LIABILITIES, 'Current Liabilities');
+    const totalLiabilities = sumByCodeRange(balanceSheet.lineItems, ['4000', '5999'], 'Total Liabilities');
+    const longTermDebt = sumByCodeRange(balanceSheet.lineItems, AccountCodeRanges.LONG_TERM_LOANS, 'Long Term Debt');
+
+    // Equity calculations
+    const totalEquity = sumByCodeRange(balanceSheet.lineItems, AccountCodeRanges.EQUITY, 'Total Equity');
+
+    // Income statement calculations
+    const revenue = sumByCodeRange(incomeStatement.lineItems, AccountCodeRanges.REVENUE, 'Revenue');
+    const operatingIncome = sumByCodeRange(incomeStatement.lineItems, AccountCodeRanges.OPERATING_REVENUE, 'Operating Income');
+    const netIncome = incomeStatement.total;
+    const costOfSales = sumByCodeRange(incomeStatement.lineItems, AccountCodeRanges.COST_OF_SALES, 'Cost of Sales');
+    const operatingExpenses = sumByCodeRange(incomeStatement.lineItems, AccountCodeRanges.OPERATING_EXPENSES, 'Operating Expenses');
+
+    // Previous period calculations for trends
+    const prevNetIncome = previousPeriodStatements?.find(s => s.type === 'income')?.statement.total;
+
+    return [
+      {
+        name: 'Liquidity Ratios',
+        ratios: [
           {
             name: 'Current Ratio',
-            value: safeRatio(currentAssets, currentLiabilities),
-            description: 'Measures ability to pay short-term obligations'
+            value: safeDiv(currentAssets, currentLiabilities, 'Current Ratio'),
+            description: 'Ability to pay short-term obligations',
+            category: 'liquidity',
+            benchmark: '> 1.5'
           },
           {
             name: 'Quick Ratio',
-            value: safeRatio(currentAssets - inventory, currentLiabilities),
-            description: 'Measures immediate ability to pay short-term obligations'
+            value: safeDiv(currentAssets - inventory, currentLiabilities, 'Quick Ratio'),
+            description: 'Immediate liquidity position',
+            category: 'liquidity',
+            benchmark: '> 1.0'
           },
+          {
+            name: 'Cash Ratio',
+            value: safeDiv(cash, currentLiabilities, 'Cash Ratio'),
+            description: 'Cash coverage of current liabilities',
+            category: 'liquidity',
+            benchmark: '> 0.5'
+          }
+        ]
+      },
+      {
+        name: 'Solvency Ratios',
+        ratios: [
           {
             name: 'Debt to Equity',
-            value: safeRatio(totalLiabilities, equity),
-            description: 'Measures financial leverage'
+            value: safeDiv(totalLiabilities, totalEquity, 'Debt to Equity'),
+            description: 'Financial leverage',
+            category: 'solvency',
+            benchmark: '< 2.0'
           },
           {
-            name: 'Working Capital Ratio',
-            value: safeRatio(currentAssets - currentLiabilities, totalAssets),
-            description: 'Measures operating liquidity'
+            name: 'Debt Ratio',
+            value: safeDiv(totalLiabilities, totalAssets, 'Debt Ratio'),
+            description: 'Portion of assets financed by debt',
+            category: 'solvency',
+            benchmark: '< 0.5'
+          },
+          {
+            name: 'Long-term Debt to Equity',
+            value: safeDiv(longTermDebt, totalEquity, 'Long-term Debt to Equity'),
+            description: 'Long-term financial leverage',
+            category: 'solvency',
+            benchmark: '< 1.0'
           }
-        ];
-      }
-
-      case 'income': {
-        const revenue = sumBySection(statement, 'revenue');
-        const operatingExpenses = sumBySection(statement, 'operating_expenses');
-        const costOfSales = sumBySection(statement, 'cost_of_sales');
-        const grossProfit = revenue - costOfSales;
-
-        return [
+        ]
+      },
+      {
+        name: 'Profitability Ratios',
+        ratios: [
           {
             name: 'Gross Margin',
-            value: safeRatio(grossProfit, revenue, true),
-            description: 'Percentage of revenue retained after direct costs'
+            value: safeDiv(revenue - costOfSales, revenue, 'Gross Margin') * 100,
+            description: 'Profit after direct costs',
+            category: 'profitability',
+            benchmark: '> 30%'
           },
           {
             name: 'Operating Margin',
-            value: safeRatio(grossProfit - operatingExpenses, revenue, true),
-            description: 'Percentage of revenue retained after operating expenses'
-          },
-          {
-            name: 'Net Margin',
-            value: safeRatio(statement.total, revenue, true),
-            description: 'Percentage of revenue retained as profit'
-          }
-        ];
-      }
-
-      case 'cash-flow': {
-        const operatingCash = sumBySection(statement, 'operating');
-        const investingCash = sumBySection(statement, 'investing');
-        const financingCash = sumBySection(statement, 'financing');
-
-        return [
-          {
-            name: 'Operating Cash Ratio',
-            value: safeRatio(operatingCash, statement.total),
-            description: 'Operating cash flow as portion of total cash flow'
-          },
-          {
-            name: 'Investment Coverage',
-            value: safeRatio(operatingCash, Math.abs(investingCash)),
-            description: 'Ability to fund investments with operations'
-          },
-          {
-            name: 'Cash Flow Coverage',
-            value: safeRatio(operatingCash, Math.abs(financingCash)),
-            description: 'Ability to cover financing activities'
-          }
-        ];
-      }
-
-      case 'pnl': {
-        const revenue = sumBySection(statement, 'revenue');
-        const operatingExpenses = sumBySection(statement, 'operating_expenses');
-        const costOfSales = sumBySection(statement, 'cost_of_sales');
-        const grossProfit = revenue - costOfSales;
-
-        return [
-          {
-            name: 'Gross Margin',
-            value: safeRatio(grossProfit, revenue, true),
-            description: 'Profitability after direct costs'
-          },
-          {
-            name: 'Operating Margin',
-            value: safeRatio(grossProfit - operatingExpenses, revenue, true),
-            description: 'Profitability after operating expenses'
+            value: safeDiv(operatingIncome, revenue, 'Operating Margin') * 100,
+            description: 'Profit from operations',
+            category: 'profitability',
+            benchmark: '> 15%'
           },
           {
             name: 'Net Profit Margin',
-            value: safeRatio(statement.total, revenue, true),
-            description: 'Overall profitability'
+            value: safeDiv(netIncome, revenue, 'Net Profit Margin') * 100,
+            description: 'Overall profitability',
+            category: 'profitability',
+            benchmark: '> 10%',
+            trend: prevNetIncome ? (netIncome > prevNetIncome ? 'up' : 'down') : undefined
+          },
+          {
+            name: 'Return on Assets',
+            value: safeDiv(netIncome, totalAssets, 'Return on Assets') * 100,
+            description: 'Asset efficiency',
+            category: 'profitability',
+            benchmark: '> 5%'
+          },
+          {
+            name: 'Return on Equity',
+            value: safeDiv(netIncome, totalEquity, 'Return on Equity') * 100,
+            description: 'Shareholder return',
+            category: 'profitability',
+            benchmark: '> 15%'
           }
-        ];
+        ]
+      },
+      {
+        name: 'Activity Ratios',
+        ratios: [
+          {
+            name: 'Asset Turnover',
+            value: safeDiv(revenue, totalAssets, 'Asset Turnover'),
+            description: 'Asset utilization efficiency',
+            category: 'activity',
+            benchmark: '> 1.0'
+          },
+          {
+            name: 'Fixed Asset Turnover',
+            value: safeDiv(revenue, fixedAssets, 'Fixed Asset Turnover'),
+            description: 'Fixed asset efficiency',
+            category: 'activity',
+            benchmark: '> 2.0'
+          },
+          {
+            name: 'Inventory Turnover',
+            value: safeDiv(costOfSales, inventory, 'Inventory Turnover'),
+            description: 'Inventory management efficiency',
+            category: 'activity',
+            benchmark: '> 6.0'
+          },
+          {
+            name: 'Receivables Turnover',
+            value: safeDiv(revenue, receivables, 'Receivables Turnover'),
+            description: 'Collection efficiency',
+            category: 'activity',
+            benchmark: '> 12.0'
+          },
+          {
+            name: 'Days Sales Outstanding',
+            value: safeDiv(receivables * 365, revenue, 'Days Sales Outstanding'),
+            description: 'Average collection period',
+            category: 'activity',
+            benchmark: '< 30'
+          }
+        ]
       }
-
-      default:
-        return [];
-    }
+    ];
   } catch (error) {
-    console.error('Error calculating ratios:', error);
-    return [];
+    logger.log('Error calculating ratios:', error);
+    throw new RatioCalculationError(
+      'CALCULATION_ERROR',
+      'Error calculating financial ratios',
+      error
+    );
   }
 }

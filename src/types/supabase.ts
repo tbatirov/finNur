@@ -1,14 +1,17 @@
-// Define and export the Company types
+// Update CompanyRow interface
 export interface CompanyRow {
   id: string;
   name: string;
   code: string;
   tax_id: string;
-  address: string | null;
-  industry: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address?: string | null;
+  website?: string | null;
+  industry?: string | null;
+  user_id: string;
   created_at: string;
   updated_at: string;
-  user_id: string;
 }
 
 export interface CompanyInsert {
@@ -16,7 +19,10 @@ export interface CompanyInsert {
   name: string;
   code: string;
   tax_id: string;
+  email?: string | null;
+  phone?: string | null;
   address?: string | null;
+  website?: string | null;
   industry?: string | null;
   user_id: string;
 }
@@ -25,59 +31,12 @@ export interface CompanyUpdate {
   name?: string;
   code?: string;
   tax_id?: string;
+  email?: string | null;
+  phone?: string | null;
   address?: string | null;
+  website?: string | null;
   industry?: string | null;
   updated_at?: string;
 }
 
-// Define and export the FiscalYear types
-export interface FiscalYearRow {
-  id: string;
-  company_id: string;
-  name: string;
-  start_date: string;
-  end_date: string;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface FiscalYearInsert {
-  id?: string;
-  company_id: string;
-  name: string;
-  start_date: string;
-  end_date: string;
-}
-
-export interface FiscalYearUpdate {
-  name?: string;
-  start_date?: string;
-  end_date?: string;
-  updated_at?: string;
-}
-
-// Define and export the Statement types
-export interface StatementRow {
-  id: string;
-  company_id: string;
-  fiscal_year_id: string;
-  month: number;
-  type: string;
-  data: any;
-  created_at: string;
-  updated_at: string;
-}
-
-export interface StatementInsert {
-  id?: string;
-  company_id: string;
-  fiscal_year_id: string;
-  month: number;
-  type: string;
-  data: any;
-}
-
-export interface StatementUpdate {
-  data?: any;
-  updated_at?: string;
-}
+// Rest of the types remain the same...

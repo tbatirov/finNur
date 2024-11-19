@@ -1,7 +1,7 @@
 import { StatementType, GeneratedStatement } from '../../types/financial';
 import { logger } from '../logger';
+import { NASValidator } from './nas-validator';
 import { validateStatement } from '../statement-validator';
-import { RuleRetriever } from './retriever';
 
 export class RAGMonitor {
   private static instance: RAGMonitor;
@@ -45,14 +45,11 @@ export class RAGMonitor {
     this.statements.forEach((statement, type) => {
       const lastCheck = this.lastValidation.get(type) || new Date(0);
       if (now.getTime() - lastCheck.getTime() >= this.validationInterval) {
-        const validation = validateStatement(statement, type);
-        const ruleValidation = RuleRetriever.validateStatement(type, statement.lineItems, statement.total);
+        // Perform comprehensive validation
+        const validations = this.validateStatement(statement, type);
         
-        if (!validation.isValid || !ruleValidation.isValid) {
-          logger.log(`Validation issues found in ${type}:`, {
-            standardValidation: validation.errors,
-            ruleViolations: ruleValidation.violations
-          });
+        if (validations.length > 0) {
+          logger.log(`Validation issues found in ${type}:`, validations);
           
           const updatedStatement = {
             ...statement,
@@ -62,10 +59,7 @@ export class RAGMonitor {
             ],
             corrections: [
               ...statement.corrections,
-              ...validation.errors,
-              ...ruleValidation.violations.map(v => 
-                `Rule violation: ${v.rule.description} in ${v.items.map(i => i.description).join(', ')}`
-              )
+              ...validations
             ]
           };
 
@@ -75,6 +69,43 @@ export class RAGMonitor {
         this.lastValidation.set(type, now);
       }
     });
+  }
+
+  private validateStatement(statement: GeneratedStatement, type: StatementType): string[] {
+    const violations: string[] = [];
+
+    // 1. Basic statement validation
+    const basicValidation = validateStatement(statement, type);
+    if (!basicValidation.isValid) {
+      violations.push(...basicValidation.errors);
+    }
+
+    // 2. NAS Hierarchy validation
+    statement.lineItems.forEach(item => {
+      const hierarchyValidation = NASValidator.validateHierarchy(item);
+      if (!hierarchyValidation.isValid) {
+        violations.push(...hierarchyValidation.violations);
+      }
+    });
+
+    // 3. Statement requirements validation
+    const requirementsValidation = NASValidator.validateStatementRequirements(
+      statement.lineItems,
+      type
+    );
+    if (!requirementsValidation.isValid) {
+      violations.push(...requirementsValidation.violations);
+    }
+
+    // 4. Balance relationships validation
+    const relationshipsValidation = NASValidator.validateBalanceRelationships(
+      statement.lineItems
+    );
+    if (!relationshipsValidation.isValid) {
+      violations.push(...relationshipsValidation.violations);
+    }
+
+    return violations;
   }
 
   getStatus(type: StatementType): 'red' | 'amber' | 'green' {

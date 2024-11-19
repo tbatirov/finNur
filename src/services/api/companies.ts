@@ -38,7 +38,11 @@ export async function createCompany(company: Omit<CompanyInsert, 'id' | 'created
   try {
     const { data, error } = await supabase
       .from('companies')
-      .insert({ ...company, user_id: userId })
+      .insert({
+        ...company,
+        user_id: userId,
+        updated_at: new Date().toISOString()
+      })
       .select()
       .single();
 
@@ -52,9 +56,17 @@ export async function createCompany(company: Omit<CompanyInsert, 'id' | 'created
 
 export async function updateCompany(id: string, updates: Partial<CompanyUpdate>, userId: string) {
   try {
+    // Remove any undefined values to prevent Supabase errors
+    const cleanUpdates = Object.fromEntries(
+      Object.entries(updates).filter(([_, v]) => v !== undefined)
+    );
+
     const { data, error } = await supabase
       .from('companies')
-      .update(updates)
+      .update({
+        ...cleanUpdates,
+        updated_at: new Date().toISOString()
+      })
       .eq('id', id)
       .eq('user_id', userId)
       .select()

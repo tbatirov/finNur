@@ -14,9 +14,11 @@ import AccountingPolicies from './pages/AccountingPolicies';
 import StatementGeneratorPage from './pages/StatementGenerator';
 import CompanyDashboard from './pages/CompanyDashboard';
 import RequireCompany from './components/RequireCompany';
-import { CompanyProvider } from './contexts/CompanyContext';
+import { CompanyProvider, useCompany } from './contexts/CompanyContext';
 
 function App() {
+  const { selectedCompany } = useCompany();
+
   return (
     <AuthProvider>
       <CompanyProvider>
@@ -42,14 +44,14 @@ function App() {
                 </Route>
               </Route>
             </Route>
-
-            <Route path="/" element={<Navigate to="/companies" replace />} />
+            
+            <Route path="/" element={<Navigate to= {selectedCompany ? "/company/dashboard" : "/companies"} replace />} />
           </Routes>
         </div>
         </Router>
       </CompanyProvider>
     </AuthProvider>
-  );
+  );  
 }
 
 export default App;
