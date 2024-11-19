@@ -1,36 +1,33 @@
 import React from 'react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
+import { Ratio } from '../../types/financial';
 
-interface Props {
-  name: string;
-  value: number;
-  previousValue: number;
-  description: string;
-  isPercentage?: boolean;
-}
+interface Props extends Ratio {}
 
-export default function RatioCard({ name, value, previousValue, description, isPercentage = false }: Props) {
-  const change = previousValue ? ((value - previousValue) / previousValue) * 100 : 0;
-  const formattedValue = isPercentage ? `${value.toFixed(2)}%` : value.toFixed(2);
+export default function RatioCard({ name, value, description, benchmark, trend }: Props) {
+  const isPercentage = name.toLowerCase().includes('margin') || 
+                      name.toLowerCase().includes('ratio') ||
+                      name.toLowerCase().includes('return');
 
   const getTrendIcon = () => {
-    if (Math.abs(change) < 1) return <Minus className="w-4 h-4 text-gray-400" />;
-    if (change > 0) return <TrendingUp className="w-4 h-4 text-green-500" />;
-    return <TrendingDown className="w-4 h-4 text-red-500" />;
+    if (!trend) return null;
+    if (trend === 'up') return <TrendingUp className="w-4 h-4 text-green-500" />;
+    if (trend === 'down') return <TrendingDown className="w-4 h-4 text-red-500" />;
+    return <Minus className="w-4 h-4 text-gray-400" />;
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-sm p-4">
+    <div className="p-4 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors">
       <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-medium text-gray-700">{name}</h4>
+        <h5 className="text-sm font-medium text-gray-700">{name}</h5>
         {getTrendIcon()}
       </div>
-      <p className="text-2xl font-bold text-gray-900 mb-2">{formattedValue}</p>
+      <p className="text-xl font-semibold text-gray-900 mb-1">
+        {value.toFixed(2)}{isPercentage ? '%' : ''}
+      </p>
       <p className="text-xs text-gray-500">{description}</p>
-      {Math.abs(change) >= 1 && (
-        <p className={`text-xs mt-2 ${change > 0 ? 'text-green-600' : 'text-red-600'}`}>
-          {change > 0 ? '↑' : '↓'} {Math.abs(change).toFixed(1)}% vs previous
-        </p>
+      {benchmark && (
+        <p className="text-xs text-blue-600 mt-1">Target: {benchmark}</p>
       )}
     </div>
   );

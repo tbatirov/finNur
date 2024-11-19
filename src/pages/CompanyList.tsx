@@ -33,9 +33,9 @@ export default function CompanyList() {
     }
   };
 
-  const handleCompanyClick = (company: Company) => {
-    navigate(`/company/${company.id}/dashboard`);
-  };
+  // const handleCompanyClick = (company: Company) => {
+  //   navigate(`/company/${company.id}/dashboard`);
+  // };
 
   const handleEditClick = (e: React.MouseEvent, company: Company) => {
     e.stopPropagation();
@@ -100,7 +100,7 @@ export default function CompanyList() {
         {filteredCompanies.map(company => (
           <div
             key={company.id}
-            onClick={() => handleCompanyClick(company)}
+            onClick={(e) => handleEditClick(e,company)}
             className="bg-white p-6 rounded-lg shadow-sm border border-gray-200 hover:border-blue-400 cursor-pointer transition-colors"
           >
             <div className="flex justify-between items-start mb-4">

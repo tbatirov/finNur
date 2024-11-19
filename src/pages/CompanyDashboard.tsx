@@ -1,15 +1,22 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Building2, AlertCircle } from 'lucide-react';
 import PeriodSelector from '../components/dashboard/PeriodSelector';
-import FinancialMetrics from '../components/dashboard/FinancialMetrics';
-import TrendAnalysis from '../components/dashboard/TrendAnalysis';
-import RatioAnalysis from '../components/dashboard/RatioAnalysis';
 import SavedStatements from '../components/dashboard/SavedStatements';
-import { SavedStatement, GeneratedStatement } from '../types/financial';
+import { SavedStatement, StatementType } from '../types/financial';
 import { useCompany } from '../contexts/CompanyContext';
 import { getFiscalYears } from '../services/api/fiscal-years';
+import { getStatements } from '../services/api/statements';
 import { supabase } from '../config/client';
+
+const VALIDATION_DURATION = 15000; // 15 seconds per statement
+const VALIDATION_INTERVAL = 100; // Progress update interval
+const STATEMENT_ORDER: StatementType[] = ['balance-sheet', 'income', 'cash-flow', 'pnl'];
+
+interface ValidationState {
+  timer: NodeJS.Timer | null;
+  currentType: StatementType | null;
+}
 
 export default function CompanyDashboard() {
   const navigate = useNavigate();
@@ -21,44 +28,100 @@ export default function CompanyDashboard() {
   const [error, setError] = useState<string | null>(null);
   const { selectedCompany } = useCompany();
 
+  // Validation state
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationProgress, setValidationProgress] = useState(0);
+  const [currentValidatingType, setCurrentValidatingType] = useState<StatementType | null>(null);
+  const [canSave, setCanSave] = useState(false);
+  const validationRef = useRef<ValidationState>({ timer: null, currentType: null });
+
   const transformStatementData = (rawData: any[]): SavedStatement[] => {
     if (!Array.isArray(rawData)) {
       console.error('Invalid rawData:', rawData);
       return [];
     }
 
-    return rawData.map(item => {
-      try {
-        // Extract each statement type from the data object
-        const statements: SavedStatement[] = [];
-        const data = item.data;
+    return rawData
+      .map((item) => {
+        try {
+          const statements: SavedStatement[] = [];
+          const data = item.data;
 
-        // Process each statement type
-        for (const type of ['balance-sheet', 'income', 'cash-flow', 'pnl']) {
-          if (data[type]) {
-            statements.push({
-              id: `${item.id}-${type}`,
-              type,
-              statement: {
-                lineItems: data[type].lineItems || [],
-                subtotals: data[type].subtotals || [],
-                total: data[type].total || 0,
-                validations: data[type].validations || [],
-                corrections: data[type].corrections || []
-              },
-              createdAt: item.created_at,
-              updatedAt: item.updated_at
-            });
+          for (const type of ['balance-sheet', 'income', 'cash-flow', 'pnl']) {
+            if (data[type]) {
+              statements.push({
+                id: `${item.id}-${type}`,
+                type: type as StatementType,
+                statement: {
+                  lineItems: data[type].lineItems || [],
+                  subtotals: data[type].subtotals || [],
+                  total: data[type].total || 0,
+                  validations: data[type].validations || [],
+                  corrections: data[type].corrections || [],
+                },
+                createdAt: item.created_at,
+                updatedAt: item.updated_at,
+              });
+            }
           }
-        }
 
-        return statements;
-      } catch (err) {
-        console.error('Error processing statement:', err, item);
-        return [];
-      }
-    }).flat().filter(Boolean);
+          return statements;
+        } catch (err) {
+          console.error('Error processing statement:', err, item);
+          return [];
+        }
+      })
+      .flat()
+      .filter(Boolean);
   };
+
+  const startValidationSequence = useCallback((startType: StatementType) => {
+    // Clear any existing validation
+    if (validationRef.current.timer) {
+      clearInterval(validationRef.current.timer);
+    }
+
+    setCanSave(false);
+    setIsValidating(true);
+    setCurrentValidatingType(startType);
+    setValidationProgress(0);
+    validationRef.current.currentType = startType;
+
+    const startTime = Date.now();
+    validationRef.current.timer = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min((elapsed / VALIDATION_DURATION) * 100, 100);
+      setValidationProgress(progress);
+
+      if (progress >= 100) {
+        clearInterval(validationRef.current.timer!);
+        validationRef.current.timer = null;
+        
+        const currentIndex = STATEMENT_ORDER.indexOf(startType);
+        const nextIndex = currentIndex + 1;
+
+        if (nextIndex < STATEMENT_ORDER.length) {
+          // Start validating next statement after a short delay
+          setTimeout(() => {
+            startValidationSequence(STATEMENT_ORDER[nextIndex]);
+          }, 1000);
+        } else {
+          // All statements validated
+          setIsValidating(false);
+          setCurrentValidatingType(null);
+          validationRef.current.currentType = null;
+          setCanSave(true);
+        }
+      }
+    }, VALIDATION_INTERVAL);
+
+    return () => {
+      if (validationRef.current.timer) {
+        clearInterval(validationRef.current.timer);
+        validationRef.current.timer = null;
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const loadFiscalYears = async () => {
@@ -71,25 +134,26 @@ export default function CompanyDashboard() {
         setLoading(true);
         const years = await getFiscalYears(selectedCompany.id);
         setFiscalYears(years);
-        
+
         if (years.length > 0) {
           const defaultYear = years[0].id;
           setSelectedYear(defaultYear);
-          
-          const { data: statementsData, error: statementsError } = await supabase
-            .from('statements')
-            .select('*')
-            .eq('company_id', selectedCompany.id)
-            .eq('fiscal_year_id', defaultYear)
-            .eq('month', selectedMonth);
+
+          const { data: statementsData, error: statementsError } =
+            await supabase
+              .from('statements')
+              .select('*')
+              .eq('company_id', selectedCompany.id)
+              .eq('fiscal_year_id', defaultYear)
+              .eq('month', selectedMonth);
 
           if (statementsError) throw statementsError;
-          
+
           if (statementsData) {
-            console.log('Raw statements data:', statementsData);
             const transformedStatements = transformStatementData(statementsData);
-            console.log('Transformed statements:', transformedStatements);
             setStatements(transformedStatements);
+            // Start validation sequence with first statement type
+            startValidationSequence('balance-sheet');
           }
         }
       } catch (err) {
@@ -101,7 +165,14 @@ export default function CompanyDashboard() {
     };
 
     loadFiscalYears();
-  }, [selectedCompany, navigate]);
+
+    // Cleanup validation on unmount
+    return () => {
+      if (validationRef.current.timer) {
+        clearInterval(validationRef.current.timer);
+      }
+    };
+  }, [selectedCompany, navigate, startValidationSequence]);
 
   useEffect(() => {
     const loadStatements = async () => {
@@ -119,23 +190,23 @@ export default function CompanyDashboard() {
         if (statementsError) throw statementsError;
 
         if (statementsData) {
-          console.log('Raw statements data:', statementsData);
           const transformedStatements = transformStatementData(statementsData);
-          console.log('Transformed statements:', transformedStatements);
           setStatements(transformedStatements);
+          // Start validation sequence with first statement type
+          startValidationSequence('balance-sheet');
         }
       } catch (err) {
         console.error('Error loading statements:', err);
-        setError(err instanceof Error ? err.message : 'Failed to load statements');
+        setError(
+          err instanceof Error ? err.message : 'Failed to load statements'
+        );
       } finally {
         setLoading(false);
       }
     };
 
-    if (selectedCompany && selectedYear) {
-      loadStatements();
-    }
-  }, [selectedCompany?.id, selectedYear, selectedMonth]);
+    loadStatements();
+  }, [selectedCompany?.id, selectedYear, selectedMonth, startValidationSequence]);
 
   if (loading) {
     return (
@@ -173,7 +244,9 @@ export default function CompanyDashboard() {
       <div className="mb-8">
         <div className="flex items-center gap-3 mb-2">
           <Building2 className="w-8 h-8 text-blue-600" />
-          <h1 className="text-2xl font-bold text-gray-900">{selectedCompany.name}</h1>
+          <h1 className="text-2xl font-bold text-gray-900">
+            {selectedCompany.name}
+          </h1>
         </div>
         <p className="text-gray-500">Tax ID: {selectedCompany.tax_id}</p>
       </div>
@@ -189,12 +262,13 @@ export default function CompanyDashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-8">
-        <SavedStatements statements={statements} />
-        <FinancialMetrics statements={statements} />
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <TrendAnalysis statements={statements} />
-          <RatioAnalysis statements={statements} />
-        </div>
+        <SavedStatements 
+          statements={statements}
+          isValidating={isValidating}
+          validationProgress={validationProgress}
+          currentValidatingType={currentValidatingType}
+          canSave={canSave}
+        />
       </div>
     </div>
   );

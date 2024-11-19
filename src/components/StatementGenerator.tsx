@@ -5,11 +5,13 @@ import { generateFinancialStatement } from '../services/ai-provider';
 import { API_CONFIG } from '../config/api';
 import DraggableStatement from './DraggableStatement';
 import StaticStatement from './StaticStatement';
-import RAGIndicator from './RAGIndicator';
+import ValidationProgress from './ValidationProgress';
 import StatementControls from './StatementControls';
-import StatementAnalysis from './StatementAnalysis';
-import FinancialRatios from './FinancialRatios';
 import { RAGMonitor } from '../services/rag/monitor';
+
+const VALIDATION_DURATION = 15000; // 15 seconds per statement
+const VALIDATION_INTERVAL = 100; // Progress update interval
+const STATEMENT_ORDER: StatementType[] = ['balance-sheet', 'income', 'cash-flow', 'pnl'];
 
 interface Props {
   data: AccountEntry[];
@@ -22,9 +24,48 @@ export default function StatementGenerator({ data, type, onStatementGenerated, i
   const [statement, setStatement] = useState<GeneratedStatement | null>(null);
   const [error, setError] = useState<{ message: string; details?: any } | null>(null);
   const [isDraggable, setIsDraggable] = useState(false);
-  const [isAIEnabled, setIsAIEnabled] = useState(true);
+  const [isValidating, setIsValidating] = useState(false);
+  const [validationProgress, setValidationProgress] = useState(0);
+  const [currentValidatingType, setCurrentValidatingType] = useState<StatementType | null>(null);
+  const [canSave, setCanSave] = useState(false);
   const ragMonitor = RAGMonitor.getInstance();
 
+  // Validation sequence handler
+  const startValidationSequence = useCallback((startType: StatementType) => {
+    setCanSave(false);
+    setIsValidating(true);
+    setCurrentValidatingType(startType);
+    setValidationProgress(0);
+
+    const startTime = Date.now();
+    const validationTimer = setInterval(() => {
+      const elapsed = Date.now() - startTime;
+      const progress = Math.min((elapsed / VALIDATION_DURATION) * 100, 100);
+      setValidationProgress(progress);
+
+      if (progress >= 100) {
+        clearInterval(validationTimer);
+        const currentIndex = STATEMENT_ORDER.indexOf(startType);
+        const nextIndex = currentIndex + 1;
+
+        if (nextIndex < STATEMENT_ORDER.length) {
+          // Start validating next statement after a short delay
+          setTimeout(() => {
+            startValidationSequence(STATEMENT_ORDER[nextIndex]);
+          }, 1000);
+        } else {
+          // All statements validated
+          setIsValidating(false);
+          setCurrentValidatingType(null);
+          setCanSave(true);
+        }
+      }
+    }, VALIDATION_INTERVAL);
+
+    return () => clearInterval(validationTimer);
+  }, []);
+
+  // Generate statement
   const generateStatement = useCallback(async (force = false) => {
     if (data.length === 0) return;
     
@@ -34,13 +75,19 @@ export default function StatementGenerator({ data, type, onStatementGenerated, i
       const result = await generateFinancialStatement(data, type, force);
       setStatement(result);
       onStatementGenerated(type, result);
+      
+      // Start validation sequence with first statement
+      if (type === 'balance-sheet') {
+        startValidationSequence('balance-sheet');
+      }
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to generate statement';
       const errorDetails = err instanceof Error && 'details' in err ? (err as any).details : undefined;
       setError({ message: errorMessage, details: errorDetails });
     }
-  }, [data, type, onStatementGenerated]);
+  }, [data, type, onStatementGenerated, startValidationSequence]);
 
+  // Initial generation
   useEffect(() => {
     if (!API_CONFIG.openai.apiKey) {
       setError({
@@ -52,37 +99,13 @@ export default function StatementGenerator({ data, type, onStatementGenerated, i
     if (data.length > 0) {
       generateStatement();
     }
+  }, [data, generateStatement]);
 
-    return () => {
-      ragMonitor.stopMonitoring(type);
-    };
-  }, [data, type, generateStatement]);
-
-  const handleRegenerateStatement = useCallback(() => {
-    generateStatement(true);
-  }, [generateStatement]);
-
+  // Handle statement changes
   const handleStatementChange = useCallback((updatedStatement: GeneratedStatement) => {
     setStatement(updatedStatement);
     onStatementGenerated(type, updatedStatement);
-    if (isAIEnabled) {
-      ragMonitor.startMonitoring(updatedStatement, type);
-    }
-  }, [type, onStatementGenerated, isAIEnabled]);
-
-  const handleAIEnabledChange = useCallback((enabled: boolean) => {
-    setIsAIEnabled(enabled);
-    if (enabled && statement) {
-      ragMonitor.startMonitoring(statement, type);
-    } else {
-      ragMonitor.stopMonitoring(type);
-    }
-  }, [statement]);
-
-  const getRAGStatus = useCallback(() => {
-    if (!statement || !isAIEnabled) return 'green';
-    return ragMonitor.getStatus(type);
-  }, [statement, isAIEnabled, type]);
+  }, [type, onStatementGenerated]);
 
   return (
     <div className="w-full bg-white rounded-xl shadow-lg p-6">
@@ -99,7 +122,7 @@ export default function StatementGenerator({ data, type, onStatementGenerated, i
         <div className="flex items-center gap-3">
           {statement && (
             <button
-              onClick={handleRegenerateStatement}
+              onClick={() => generateStatement(true)}
               disabled={isGenerating}
               className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -114,8 +137,8 @@ export default function StatementGenerator({ data, type, onStatementGenerated, i
         <StatementControls
           isDraggable={isDraggable}
           onDraggableChange={setIsDraggable}
-          isAIEnabled={isAIEnabled}
-          onAIEnabledChange={handleAIEnabledChange}
+          isAIEnabled={true}
+          onAIEnabledChange={() => {}}
         />
       )}
 
@@ -146,15 +169,11 @@ export default function StatementGenerator({ data, type, onStatementGenerated, i
         </div>
       ) : data.length > 0 && statement ? (
         <div className="space-y-6">
-          {isAIEnabled && (
-            <RAGIndicator
-              status={getRAGStatus()}
-              message={
-                statement.corrections.length === 0 
-                  ? 'Statement is valid per NAS standards'
-                  : 'Statement requires attention'
-              }
-              details={statement.corrections}
+          {isValidating && (
+            <ValidationProgress 
+              progress={validationProgress} 
+              currentType={currentValidatingType!}
+              canSave={canSave}
             />
           )}
           {isDraggable ? (
@@ -165,9 +184,6 @@ export default function StatementGenerator({ data, type, onStatementGenerated, i
           ) : (
             <StaticStatement statement={statement} />
           )}
-          
-          {/* <FinancialRatios statement={statement} type={type} /> */}
-          {/* <StatementAnalysis statement={statement} type={type} /> */}
         </div>
       ) : (
         <p className="text-center text-gray-500">Upload trial balance to generate statement</p>

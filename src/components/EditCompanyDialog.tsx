@@ -3,6 +3,7 @@ import { Building2, X } from "lucide-react";
 import { CompanyUpdate } from "../types/supabase";
 import { updateCompany } from "../services/api/companies";
 import { useAuth } from "../contexts/AuthContext";
+import { INDUSTRIES } from "../utils/industries";
 
 interface Props {
   isOpen: boolean;
@@ -79,6 +80,22 @@ export default function EditCompanyDialog({ isOpen, company, onClose, onCompanyU
           </div>
 
           <div>
+            <label className="block text-sm font-medium text-gray-700">Industry</label>
+            <select
+              required
+              value={formData.industry || ''}
+              onChange={e => setFormData(prev => ({ ...prev, industry: e.target.value }))}
+              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            >
+              {INDUSTRIES.map(industry => (
+                <option key={industry.value} value={industry.value}>
+                  {industry.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
             <label className="block text-sm font-medium text-gray-700">Company Code</label>
             <input
               type="text"
@@ -108,17 +125,6 @@ export default function EditCompanyDialog({ isOpen, company, onClose, onCompanyU
               onChange={e => setFormData(prev => ({ ...prev, address: e.target.value }))}
               className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
               rows={3}
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Industry</label>
-            <input
-              type="text"
-              required
-              value={formData.industry}
-              onChange={e => setFormData(prev => ({ ...prev, industry: e.target.value }))}
-              className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
             />
           </div>
 
