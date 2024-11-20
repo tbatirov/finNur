@@ -1,8 +1,8 @@
 import { LineItem } from '../types/financial';
 
 // Helper function for safe division
-const safeDiv = (num: number, den: number): number => {
-  if (den === 0) return 0;
+export const safeDiv = (num: number, den: number): number => {
+  if (den === 0 ) return 0;
   return num / den;
 };
 
