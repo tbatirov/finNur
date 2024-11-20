@@ -6,14 +6,9 @@ import TrendAnalysisView from './TrendAnalysisView';
 import ComprehensiveReport from './ComprehensiveReport';
 import RatioAnalysis from './RatioAnalysis';
 import { ErrorBoundary } from '../ErrorBoundary';
-import ValidationProgress from '../ValidationProgress';
 
 interface Props {
   statements: SavedStatement[];
-  isValidating: boolean;
-  validationProgress: number;
-  currentValidatingType: StatementType | null;
-  canSave: boolean;
 }
 
 const STATEMENT_ORDER: StatementType[] = ['balance-sheet', 'income', 'cash-flow', 'pnl'];
@@ -39,13 +34,7 @@ function getTabTitle(type: string): string {
   }
 }
 
-export default function SavedStatements({ 
-  statements, 
-  isValidating, 
-  validationProgress, 
-  currentValidatingType,
-  canSave 
-}: Props) {
+export default function SavedStatements({ statements }: Props) {
   const [activeTab, setActiveTab] = useState<string>('');
 
   // Create memoized tabs array
@@ -67,32 +56,14 @@ export default function SavedStatements({
     ].sort((a, b) => a.order - b.order);
   }, []);
 
-  // Set initial active tab and update when validation changes
+  // Set initial active tab
   useEffect(() => {
-    if (statements.length > 0) {
-      if (!activeTab || (isValidating && currentValidatingType)) {
-        setActiveTab(currentValidatingType || STATEMENT_ORDER[0]);
-      }
+    if (statements.length > 0 && !activeTab) {
+      setActiveTab(STATEMENT_ORDER[0]);
     }
-  }, [statements, activeTab, isValidating, currentValidatingType]);
-
-  // Determine if a tab should be disabled
-  const isTabDisabled = (tabId: string): boolean => {
-    if (!isValidating) return false;
-    if (canSave) return false;
-    
-    // During validation, only allow viewing statements up to current
-    if (['trend', 'ratios', 'report'].includes(tabId)) return true;
-    
-    const tabIndex = STATEMENT_ORDER.indexOf(tabId as StatementType);
-    const currentIndex = currentValidatingType ? 
-      STATEMENT_ORDER.indexOf(currentValidatingType) : -1;
-      
-    return tabIndex > currentIndex;
-  };
+  }, [statements, activeTab]);
 
   const handleTabClick = (tabId: string) => {
-    if (isTabDisabled(tabId)) return;
     setActiveTab(tabId);
   };
 
@@ -115,40 +86,24 @@ export default function SavedStatements({
         <h3 className="text-lg font-semibold text-gray-800">Saved Statements</h3>
       </div>
 
-      {isValidating && currentValidatingType && (
-        <ValidationProgress 
-          progress={validationProgress}
-          currentType={currentValidatingType}
-          canSave={canSave}
-        />
-      )}
-
       <div className="border-b border-gray-200">
         <nav className="flex -mb-px space-x-8 overflow-x-auto">
-          {tabs.map((tab) => {
-            const disabled = isTabDisabled(tab.id);
-            return (
-              <button
-                key={tab.id}
-                onClick={() => handleTabClick(tab.id)}
-                disabled={disabled}
-                aria-disabled={disabled}
-                className={`
-                  py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-all duration-200
-                  ${activeTab === tab.id 
-                    ? 'border-blue-500 text-blue-600' 
-                    : 'border-transparent'
-                  }
-                  ${disabled
-                    ? 'text-gray-300 cursor-not-allowed opacity-50 pointer-events-none'
-                    : 'text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                  }
-                `}
-              >
-                {tab.label}
-              </button>
-            );
-          })}
+          {tabs.map((tab) => (
+            <button
+              key={tab.id}
+              onClick={() => handleTabClick(tab.id)}
+              className={`
+                py-4 px-1 border-b-2 font-medium text-sm whitespace-nowrap transition-all duration-200
+                ${activeTab === tab.id 
+                  ? 'border-blue-500 text-blue-600' 
+                  : 'border-transparent'
+                }
+                text-gray-500 hover:text-gray-700 hover:border-gray-300
+              `}
+            >
+              {tab.label}
+            </button>
+          ))}
         </nav>
       </div>
 

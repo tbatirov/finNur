@@ -262,13 +262,7 @@ export default function CompanyDashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-8">
-        <SavedStatements 
-          statements={statements}
-          isValidating={isValidating}
-          validationProgress={validationProgress}
-          currentValidatingType={currentValidatingType}
-          canSave={canSave}
-        />
+        <SavedStatements statements={statements} />
       </div>
     </div>
   );

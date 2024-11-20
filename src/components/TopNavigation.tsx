@@ -196,7 +196,7 @@ export default function TopNavigation() {
                             >
                               Fiscal Years
                             </Link>
-                            <Link
+                            {/* <Link
                               to="/company/chart-of-accounts"
                               className="block px-4 py-2 text-sm text-gray-700 hover:bg-gray-100"
                               onClick={() => setIsSettingsMenuOpen(false)}
@@ -209,7 +209,7 @@ export default function TopNavigation() {
                               onClick={() => setIsSettingsMenuOpen(false)}
                             >
                               Accounting Policies
-                            </Link>
+                            </Link> */}
                           </div>
                         </>
                       )}

@@ -77,7 +77,7 @@ export default function StatementGenerator({ data, type, onStatementGenerated, i
       onStatementGenerated(type, result);
       
       // Start validation sequence with first statement
-      if (type === 'balance-sheet') {
+      if (type === 'balance-sheet' && !isValidating) {
         startValidationSequence('balance-sheet');
       }
     } catch (err) {

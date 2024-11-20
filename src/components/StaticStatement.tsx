@@ -6,7 +6,7 @@ interface Props {
 }
 
 export default function StaticStatement({ statement }: Props) {
-  console.log('Rendering statement:', statement);
+  ///console.log('Rendering statement:', statement);
 
   if (!statement || !Array.isArray(statement.lineItems)) {
     console.warn('Invalid statement data:', statement);
